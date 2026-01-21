@@ -33,6 +33,7 @@ const shortcutGroups: ShortcutGroup[] = [
     shortcuts: [
       { keys: ["?"], description: "Show keyboard shortcuts" },
       { keys: ["["], description: "Toggle sidebar" },
+      { keys: ["⌘", "i"], description: "Toggle AI assistant" },
     ],
   },
 ];

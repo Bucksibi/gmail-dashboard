@@ -7,7 +7,8 @@ import {
   KeyboardShortcutsModal,
 } from "@/components/layout";
 import { EmailList } from "@/components/email";
-import { useUIStore } from "@/lib/stores";
+import { AIAssistantPanel } from "@/components/ai";
+import { useUIStore, useAIStore } from "@/lib/stores";
 import { useEffect } from "react";
 
 interface DashboardClientProps {
@@ -17,22 +18,30 @@ interface DashboardClientProps {
 
 export function DashboardClient({ userEmail, onSignOut }: DashboardClientProps) {
   const { activeWidget, openShortcutsModal } = useUIStore();
+  const { togglePanel: toggleAIPanel } = useAIStore();
 
-  // Global keyboard shortcut for help modal
+  // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === "?" &&
-        !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement).tagName)
-      ) {
+      if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement).tagName)) {
+        return;
+      }
+
+      if (e.key === "?") {
         e.preventDefault();
         openShortcutsModal();
+      }
+
+      // Cmd/Ctrl + I to toggle AI panel
+      if ((e.metaKey || e.ctrlKey) && e.key === "i") {
+        e.preventDefault();
+        toggleAIPanel();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [openShortcutsModal]);
+  }, [openShortcutsModal, toggleAIPanel]);
 
   return (
     <div className="h-screen flex flex-col bg-background">
@@ -59,6 +68,7 @@ export function DashboardClient({ userEmail, onSignOut }: DashboardClientProps) 
       </div>
 
       <KeyboardShortcutsModal />
+      <AIAssistantPanel />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { ThemeToggle } from "@/components/theme";
+import { AITriggerButton } from "@/components/ai";
 import { Button } from "@/components/ui";
 import { useUIStore } from "@/lib/stores";
 import { cn } from "@/lib/utils";
@@ -72,6 +73,9 @@ export function DashboardHeader({ userEmail, onSignOut }: DashboardHeaderProps) 
           </kbd>
           <span className="hidden md:inline">Shortcuts</span>
         </button>
+
+        {/* AI Assistant */}
+        <AITriggerButton />
 
         {/* Theme toggle */}
         <ThemeToggle />
