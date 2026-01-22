@@ -2,8 +2,9 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
+// Using gemini-2.5-flash-lite for better free tier limits (1000 RPD vs 20 RPD)
 export const geminiModel = genAI.getGenerativeModel({
-  model: "gemini-3-flash-preview",
+  model: "gemini-2.5-flash-lite",
 });
 
 // Retry configuration
