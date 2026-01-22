@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useMemo, useState } from "react";
 import { EmailListItem } from "./email-list-item";
 import { EmailFilters } from "./email-filters";
 import { EmailDetail } from "./email-detail";
@@ -41,6 +41,11 @@ export function EmailList() {
   const listRef = useRef<HTMLDivElement>(null);
   const selectedIndexRef = useRef<number>(-1);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Force update mechanism for keyboard navigation
+  // Zustand updates happen outside React's event system when using window.addEventListener,
+  // so we need to trigger a React re-render manually after store updates
+  const [, forceRender] = useState(0);
 
   // Build Gmail query from filters
   const buildQuery = useCallback((f: Filters): string => {
@@ -190,7 +195,21 @@ export function EmailList() {
     return () => clearTimeout(timer);
   }, [emails, classifications, isClassifying, isLoading, setClassifications, setClassifying]);
 
+  // Memoize displayed emails - used for both render and keyboard navigation
+  const displayEmails = useMemo(() => {
+    const hasClassificationFilters =
+      filters.categories.length > 0 ||
+      filters.priorities.length > 0 ||
+      filters.excludeRedundant;
+
+    return hasClassificationFilters ? getFilteredEmails() : emails;
+  }, [emails, filters.categories, filters.priorities, filters.excludeRedundant, getFilteredEmails]);
+
   // Keyboard navigation
+  // Note: We use useEmailStore.getState() inside the handler to avoid stale closure issues.
+  // This ensures we always get the latest store state and actions.
+  // We also use forceRender to trigger React re-renders after Zustand updates,
+  // since window.addEventListener events are outside React's event system.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't handle if typing in input
@@ -198,18 +217,28 @@ export function EmailList() {
         return;
       }
 
-      const currentIndex = emails.findIndex((e) => e.id === selectedEmailId);
+      // Get fresh state from store to avoid stale closures
+      const store = useEmailStore.getState();
+      const uiStore = useUIStore.getState();
+      const currentSelectedId = store.selectedEmailId;
+
+      // Use displayEmails (filtered list) for navigation so keyboard matches what's visible
+      const currentIndex = displayEmails.findIndex((email) => email.id === currentSelectedId);
 
       switch (e.key) {
         case "j":
         case "ArrowDown":
           e.preventDefault();
-          if (currentIndex < emails.length - 1) {
-            selectEmail(emails[currentIndex + 1].id);
+          if (currentIndex < displayEmails.length - 1) {
+            const nextId = displayEmails[currentIndex + 1].id;
+            store.selectEmail(nextId);
             selectedIndexRef.current = currentIndex + 1;
-          } else if (currentIndex === -1 && emails.length > 0) {
-            selectEmail(emails[0].id);
+            forceRender((n) => n + 1);
+          } else if (currentIndex === -1 && displayEmails.length > 0) {
+            const firstId = displayEmails[0].id;
+            store.selectEmail(firstId);
             selectedIndexRef.current = 0;
+            forceRender((n) => n + 1);
           }
           break;
 
@@ -217,38 +246,43 @@ export function EmailList() {
         case "ArrowUp":
           e.preventDefault();
           if (currentIndex > 0) {
-            selectEmail(emails[currentIndex - 1].id);
+            store.selectEmail(displayEmails[currentIndex - 1].id);
             selectedIndexRef.current = currentIndex - 1;
+            forceRender((n) => n + 1);
           }
           break;
 
         case "Enter":
         case "o":
-          if (selectedEmailId) {
-            openDetailPanel();
+          if (currentSelectedId) {
+            uiStore.openDetailPanel();
+            forceRender((n) => n + 1);
           }
           break;
 
         case "Escape":
-          if (detailPanelOpen) {
-            closeDetailPanel();
-          } else if (selectedEmailIds.size > 0) {
-            clearSelection();
+          if (uiStore.detailPanelOpen) {
+            uiStore.closeDetailPanel();
+          } else if (store.selectedEmailIds.size > 0) {
+            store.clearSelection();
           } else {
-            selectEmail(null);
+            store.selectEmail(null);
           }
+          forceRender((n) => n + 1);
           break;
 
         case "x":
-          if (selectedEmailId) {
-            toggleEmailSelection(selectedEmailId);
+          if (currentSelectedId) {
+            store.toggleEmailSelection(currentSelectedId);
+            forceRender((n) => n + 1);
           }
           break;
 
         case "a":
           if (e.metaKey || e.ctrlKey) {
             e.preventDefault();
-            selectAllEmails();
+            store.selectAllEmails();
+            forceRender((n) => n + 1);
           }
           break;
 
@@ -259,27 +293,15 @@ export function EmailList() {
           break;
 
         case "[":
-          toggleSidebar();
+          uiStore.toggleSidebar();
+          forceRender((n) => n + 1);
           break;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    emails,
-    selectedEmailId,
-    selectedEmailIds,
-    detailPanelOpen,
-    selectEmail,
-    toggleEmailSelection,
-    selectAllEmails,
-    clearSelection,
-    openDetailPanel,
-    closeDetailPanel,
-    toggleSidebar,
-    fetchEmails,
-  ]);
+  }, [displayEmails, fetchEmails]);
 
   // Scroll selected email into view
   useEffect(() => {
@@ -384,31 +406,20 @@ export function EmailList() {
           {!isLoading && !error && emails.length > 0 && (
             <>
               <div className="divide-y divide-border-muted">
-                {/* Apply client-side classification filters */}
-                {(() => {
-                  const hasClassificationFilters =
-                    filters.categories.length > 0 ||
-                    filters.priorities.length > 0 ||
-                    filters.excludeRedundant;
-
-                  const displayEmails = hasClassificationFilters
-                    ? getFilteredEmails()
-                    : emails;
-
-                  return displayEmails.map((email) => (
-                    <div key={email.id} data-email-id={email.id}>
-                      <EmailListItem
-                        email={email}
-                        isSelected={selectedEmailIds.has(email.id)}
-                        isActive={selectedEmailId === email.id}
-                        classification={classifications.get(email.id)}
-                        onSelect={() => handleEmailSelect(email.id)}
-                        onOpen={() => handleEmailOpen(email.id)}
-                        onToggleSelect={(e) => handleToggleSelect(email.id, e)}
-                      />
-                    </div>
-                  ));
-                })()}
+                {/* Render filtered/displayed emails */}
+                {displayEmails.map((email) => (
+                  <div key={email.id} data-email-id={email.id}>
+                    <EmailListItem
+                      email={email}
+                      isSelected={selectedEmailIds.has(email.id)}
+                      isActive={selectedEmailId === email.id}
+                      classification={classifications.get(email.id)}
+                      onSelect={() => handleEmailSelect(email.id)}
+                      onOpen={() => handleEmailOpen(email.id)}
+                      onToggleSelect={(e) => handleToggleSelect(email.id, e)}
+                    />
+                  </div>
+                ))}
               </div>
 
               {/* Infinite scroll sentinel */}

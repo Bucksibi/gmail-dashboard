@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { chatAboutEmails, suggestReply, getErrorMessage, type EmailForAI } from "@/lib/gemini";
+import { chatAboutEmails, getErrorMessage, type EmailForAI } from "@/lib/gemini";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -11,13 +11,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { action, message, emails, history, email, tone } = body as {
-      action: "chat" | "reply";
+    const { action, message, emails, history } = body as {
+      action: "chat";
       message?: string;
       emails?: EmailForAI[];
       history?: { role: "user" | "model"; content: string }[];
-      email?: EmailForAI;
-      tone?: "professional" | "casual" | "friendly";
     };
 
     if (action === "chat") {
@@ -29,18 +27,6 @@ export async function POST(request: NextRequest) {
       }
 
       const response = await chatAboutEmails(message, emails, history || []);
-      return NextResponse.json({ response });
-    }
-
-    if (action === "reply") {
-      if (!email) {
-        return NextResponse.json(
-          { error: "Email required for reply suggestion" },
-          { status: 400 }
-        );
-      }
-
-      const response = await suggestReply(email, tone || "professional");
       return NextResponse.json({ response });
     }
 
