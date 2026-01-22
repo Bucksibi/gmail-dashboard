@@ -2,10 +2,33 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
-// Using gemini-2.5-flash-lite for better free tier limits (1000 RPD vs 20 RPD)
-export const geminiModel = genAI.getGenerativeModel({
+// =============================================================================
+// Multi-Model Setup - Optimized for Free Tier Quotas
+// =============================================================================
+// Model              | Free Tier Limit | Used For
+// -------------------|-----------------|------------------------------------------
+// gemini-2.5-flash-lite | 1,000 RPD    | Classification (high volume, simple)
+// gemini-2.5-flash      | 250 RPD      | Chat, filters, task extraction (balanced)
+// gemini-2.5-pro        | 100 RPD      | Summarization (best comprehension)
+// =============================================================================
+
+// High-volume, simple tasks (1,000 requests/day)
+const modelLite = genAI.getGenerativeModel({
   model: "gemini-2.5-flash-lite",
 });
+
+// Balanced tasks - chat, filters, tasks (250 requests/day)
+const modelFlash = genAI.getGenerativeModel({
+  model: "gemini-2.5-flash",
+});
+
+// Complex comprehension tasks (100 requests/day)
+const modelPro = genAI.getGenerativeModel({
+  model: "gemini-2.5-pro",
+});
+
+// Legacy export for backwards compatibility
+export const geminiModel = modelLite;
 
 // Retry configuration
 const MAX_RETRIES = 3;
@@ -123,7 +146,8 @@ Respond in JSON format:
   ]
 }`;
 
-  const result = await withRetry(() => geminiModel.generateContent(prompt));
+  // Using Pro model for best comprehension on summaries
+  const result = await withRetry(() => modelPro.generateContent(prompt));
   const text = result.response.text();
 
   try {
@@ -142,6 +166,7 @@ Respond in JSON format:
   return [];
 }
 
+// Legacy function - use classifyEmailsBatch instead for B2B categories
 export async function categorizeEmails(emails: EmailForAI[]): Promise<EmailCategory[]> {
   const prompt = `Categorize these emails and assign priority levels. Categories: work, personal, promotions, social, updates, finance, travel, other.
 Priority: high (needs immediate attention), medium (should address soon), low (can wait).
@@ -166,7 +191,8 @@ Respond in JSON format:
   ]
 }`;
 
-  const result = await withRetry(() => geminiModel.generateContent(prompt));
+  // Using Lite model for simple categorization
+  const result = await withRetry(() => modelLite.generateContent(prompt));
   const text = result.response.text();
 
   try {
@@ -203,7 +229,8 @@ Respond in JSON:
   ]
 }`;
 
-  const result = await withRetry(() => geminiModel.generateContent(prompt));
+  // Using Flash model for balanced analysis
+  const result = await withRetry(() => modelFlash.generateContent(prompt));
   const text = result.response.text();
 
   try {
@@ -223,8 +250,9 @@ export async function chatAboutEmails(
   emails: EmailForAI[],
   history: { role: "user" | "model"; content: string }[]
 ): Promise<string> {
+  // Using Flash model for interactive chat (good reasoning, balanced quota)
   return withRetry(async () => {
-    const chat = geminiModel.startChat({
+    const chat = modelFlash.startChat({
       history: [
         {
           role: "user",
@@ -244,19 +272,6 @@ export async function chatAboutEmails(
     const result = await chat.sendMessage(message);
     return result.response.text();
   });
-}
-
-export async function suggestReply(email: EmailForAI, tone: "professional" | "casual" | "friendly" = "professional"): Promise<string> {
-  const prompt = `Write a ${tone} reply to this email:
-
-From: ${email.from}
-Subject: ${email.subject}
-Content: ${email.body || email.snippet}
-
-Write only the reply body, no subject line or greeting repetition. Keep it concise and appropriate.`;
-
-  const result = await withRetry(() => geminiModel.generateContent(prompt));
-  return result.response.text();
 }
 
 export async function extractTasks(emails: EmailForAI[]): Promise<{
@@ -282,7 +297,8 @@ Respond in JSON:
   ]
 }`;
 
-  const result = await withRetry(() => geminiModel.generateContent(prompt));
+  // Using Flash model for task extraction (medium complexity)
+  const result = await withRetry(() => modelFlash.generateContent(prompt));
   const text = result.response.text();
 
   try {
@@ -357,7 +373,8 @@ Respond in JSON format:
   ]
 }`;
 
-  const result = await withRetry(() => geminiModel.generateContent(prompt));
+  // Using Lite model for high-volume classification (1,000 requests/day)
+  const result = await withRetry(() => modelLite.generateContent(prompt));
   const text = result.response.text();
 
   try {
