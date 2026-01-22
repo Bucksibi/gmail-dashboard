@@ -40,3 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .claude/
+
+/lib/generated/prisma
+
+# prisma
+/prisma/*.db
+/prisma/*.db-journal

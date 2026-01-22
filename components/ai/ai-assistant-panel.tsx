@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useAIStore, useEmailStore } from "@/lib/stores";
 import { Button, Badge } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { FeedbackButtons } from "./feedback-buttons";
 
 const SUGGESTED_PROMPTS = [
   "Summarize my unread emails",
@@ -442,7 +443,11 @@ function ActionsTab({
       )}
 
       {categories.size > 0 && (
-        <ResultsSection title="Categories">
+        <ResultsSection
+          title="Categories"
+          responseType="categorize"
+          responseData={Array.from(categories.values())}
+        >
           <div className="flex flex-wrap gap-2">
             {Array.from(categories.values()).map((cat: any) => (
               <CategoryBadge key={cat.id} category={cat} />
@@ -452,7 +457,11 @@ function ActionsTab({
       )}
 
       {tasks.length > 0 && (
-        <ResultsSection title="Tasks Found">
+        <ResultsSection
+          title="Tasks Found"
+          responseType="tasks"
+          responseData={tasks}
+        >
           <div className="space-y-2">
             {tasks.map((task, idx) => (
               <TaskItem key={idx} task={task} />
@@ -462,7 +471,11 @@ function ActionsTab({
       )}
 
       {suggestedFilters.length > 0 && (
-        <ResultsSection title="Suggested Filters">
+        <ResultsSection
+          title="Suggested Filters"
+          responseType="filters"
+          responseData={{ suggestedFilters, insights }}
+        >
           <div className="flex flex-wrap gap-2">
             {suggestedFilters.map((filter, idx) => (
               <button
@@ -531,7 +544,7 @@ function MessageBubble({
   message,
   style,
 }: {
-  message: { role: "user" | "assistant"; content: string };
+  message: { id: string; role: "user" | "assistant"; content: string };
   style?: React.CSSProperties;
 }) {
   const isUser = message.role === "user";
@@ -546,13 +559,26 @@ function MessageBubble({
     >
       <div
         className={cn(
-          "max-w-[85%] px-4 py-2.5 rounded-2xl text-sm",
+          "max-w-[85%] rounded-2xl text-sm",
           isUser
-            ? "bg-primary text-primary-foreground rounded-br-md"
+            ? "bg-primary text-primary-foreground rounded-br-md px-4 py-2.5"
             : "bg-background-secondary text-foreground rounded-bl-md"
         )}
       >
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        {isUser ? (
+          <p className="whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          <div className="px-4 py-2.5">
+            <p className="whitespace-pre-wrap">{message.content}</p>
+            <div className="mt-2 pt-2 border-t border-border-muted">
+              <FeedbackButtons
+                responseType="chat"
+                responseData={{ content: message.content }}
+                context={message.id}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -629,13 +655,25 @@ function ActionCard({
 function ResultsSection({
   title,
   children,
+  responseType,
+  responseData,
 }: {
   title: string;
   children: React.ReactNode;
+  responseType?: "categorize" | "tasks" | "filters";
+  responseData?: any;
 }) {
   return (
     <div className="border border-border rounded-xl p-4 animate-fadeIn">
-      <h4 className="font-medium text-foreground text-sm mb-3">{title}</h4>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="font-medium text-foreground text-sm">{title}</h4>
+        {responseType && responseData && (
+          <FeedbackButtons
+            responseType={responseType}
+            responseData={responseData}
+          />
+        )}
+      </div>
       {children}
     </div>
   );
@@ -670,7 +708,7 @@ function SummaryCard({ summary }: { summary: any }) {
         </ul>
       )}
       {summary.actionItems?.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 mb-2">
           {summary.actionItems.map((item: string, i: number) => (
             <span
               key={i}
@@ -681,6 +719,13 @@ function SummaryCard({ summary }: { summary: any }) {
           ))}
         </div>
       )}
+      <div className="pt-2 border-t border-border-muted">
+        <FeedbackButtons
+          responseType="summarize"
+          responseData={summary}
+          context={summary.id}
+        />
+      </div>
     </div>
   );
 }
