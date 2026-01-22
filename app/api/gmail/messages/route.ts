@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams;
   const query = searchParams.get("q") || undefined;
-  const maxResults = parseInt(searchParams.get("maxResults") || "20", 10);
+  const maxResults = parseInt(searchParams.get("maxResults") || "50", 10);
   const pageToken = searchParams.get("pageToken") || undefined;
 
   try {

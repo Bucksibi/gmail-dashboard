@@ -47,7 +47,7 @@ export interface FormattedEmail {
 export async function listMessages(
   accessToken: string,
   query?: string,
-  maxResults: number = 20,
+  maxResults: number = 50,
   pageToken?: string
 ): Promise<GmailMessageList> {
   const params = new URLSearchParams({
@@ -112,10 +112,32 @@ export async function getMessage(
   return response.json();
 }
 
+// Fetch items in batches to avoid rate limiting
+async function fetchInBatches<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  batchSize: number = 10
+): Promise<R[]> {
+  const results: R[] = [];
+
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+
+    // Small delay between batches to avoid rate limits
+    if (i + batchSize < items.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  return results;
+}
+
 export async function getMessagesWithDetails(
   accessToken: string,
   query?: string,
-  maxResults: number = 20,
+  maxResults: number = 50,
   pageToken?: string
 ): Promise<{
   messages: FormattedEmail[];
@@ -128,8 +150,11 @@ export async function getMessagesWithDetails(
     return { messages: [], resultSizeEstimate: 0 };
   }
 
-  const messages = await Promise.all(
-    list.messages.map((msg) => getMessage(accessToken, msg.id, "metadata"))
+  // Fetch messages in batches to avoid rate limiting
+  const messages = await fetchInBatches(
+    list.messages,
+    (msg) => getMessage(accessToken, msg.id, "metadata"),
+    10 // 10 messages per batch
   );
 
   return {

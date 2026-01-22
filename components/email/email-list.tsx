@@ -144,8 +144,8 @@ export function EmailList() {
       );
       if (unclassified.length === 0) return;
 
-      // Classify in batches of 30
-      const batch = unclassified.slice(0, 30);
+      // Classify in batches of 50
+      const batch = unclassified.slice(0, 50);
 
       // Mark as pending classification to prevent re-triggering
       batch.forEach((e) => classifiedIdsRef.current.add(e.id));

@@ -10,65 +10,55 @@ interface ClassificationBadgeProps {
   compact?: boolean;
 }
 
-// Category config with colors and icons
+// Category config with colors and icons - optimized for B2B/HVAC business emails
 const CATEGORY_CONFIG: Record<
   string,
   { label: string; color: string; bgColor: string }
 > = {
-  work: {
-    label: "Work",
+  orders: {
+    label: "Order",
     color: "text-blue-600 dark:text-blue-400",
     bgColor: "bg-blue-500/10",
-  },
-  personal: {
-    label: "Personal",
-    color: "text-purple-600 dark:text-purple-400",
-    bgColor: "bg-purple-500/10",
-  },
-  promotions: {
-    label: "Promo",
-    color: "text-orange-600 dark:text-orange-400",
-    bgColor: "bg-orange-500/10",
   },
   alerts: {
     label: "Alert",
     color: "text-red-600 dark:text-red-400",
     bgColor: "bg-red-500/10",
   },
-  urgent: {
-    label: "Urgent",
-    color: "text-red-600 dark:text-red-400",
-    bgColor: "bg-red-500/10",
+  vendors: {
+    label: "Vendor",
+    color: "text-purple-600 dark:text-purple-400",
+    bgColor: "bg-purple-500/10",
   },
-  newsletter: {
-    label: "News",
-    color: "text-teal-600 dark:text-teal-400",
-    bgColor: "bg-teal-500/10",
-  },
-  social: {
-    label: "Social",
-    color: "text-pink-600 dark:text-pink-400",
-    bgColor: "bg-pink-500/10",
-  },
-  updates: {
-    label: "Update",
-    color: "text-cyan-600 dark:text-cyan-400",
-    bgColor: "bg-cyan-500/10",
-  },
-  finance: {
-    label: "Finance",
+  customers: {
+    label: "Customer",
     color: "text-green-600 dark:text-green-400",
     bgColor: "bg-green-500/10",
   },
-  travel: {
-    label: "Travel",
-    color: "text-sky-600 dark:text-sky-400",
-    bgColor: "bg-sky-500/10",
+  correspondence: {
+    label: "Reply Needed",
+    color: "text-orange-600 dark:text-orange-400",
+    bgColor: "bg-orange-500/10",
+  },
+  billing: {
+    label: "Billing",
+    color: "text-emerald-600 dark:text-emerald-400",
+    bgColor: "bg-emerald-500/10",
+  },
+  shipping: {
+    label: "Shipping",
+    color: "text-cyan-600 dark:text-cyan-400",
+    bgColor: "bg-cyan-500/10",
+  },
+  system: {
+    label: "System",
+    color: "text-gray-600 dark:text-gray-400",
+    bgColor: "bg-gray-500/10",
   },
   other: {
     label: "Other",
-    color: "text-gray-600 dark:text-gray-400",
-    bgColor: "bg-gray-500/10",
+    color: "text-slate-600 dark:text-slate-400",
+    bgColor: "bg-slate-500/10",
   },
 };
 

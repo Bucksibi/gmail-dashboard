@@ -298,7 +298,7 @@ Respond in JSON:
 
 export interface EmailClassificationResult {
   id: string;
-  category: "work" | "personal" | "promotions" | "alerts" | "urgent" | "newsletter" | "social" | "updates" | "finance" | "travel" | "other";
+  category: "orders" | "alerts" | "vendors" | "customers" | "correspondence" | "billing" | "shipping" | "system" | "other";
   priority: "high" | "medium" | "low";
   isRedundant: boolean;
   redundantOf?: string;
@@ -310,27 +310,25 @@ export async function classifyEmailsBatch(
   emails: EmailForAI[],
   existingEmailIds?: string[]
 ): Promise<EmailClassificationResult[]> {
-  const prompt = `Classify these emails into categories and assign priorities. Also detect redundant/duplicate emails.
+  const prompt = `You are classifying emails for a B2B HVAC/construction business. Classify these emails and assign priorities. Also detect redundant/duplicate emails.
 
-Categories:
-- work: Work-related emails, colleagues, clients, projects
-- personal: Personal correspondence, friends, family
-- promotions: Marketing emails, sales, discounts
-- alerts: System alerts, notifications, security
-- urgent: Time-sensitive, requires immediate attention
-- newsletter: Newsletters, subscriptions, digests
-- social: Social media notifications
-- updates: Account updates, shipping, order confirmations
-- finance: Banking, payments, invoices
-- travel: Flight, hotel, travel bookings
+Categories (choose the most specific match):
+- orders: Order confirmations, PO numbers, order updates, purchase orders, Sibi orders
+- alerts: Exception alerts, system warnings, urgent notifications requiring action, order alerts
+- vendors: Communications from suppliers, distributors (Mingledorff's, Sigler, etc.), parts availability
+- customers: Customer communications, property owner inquiries, service requests
+- correspondence: Emails requiring a reply, back-and-forth discussions, meeting requests, negotiations
+- billing: Invoices, payment confirmations, account statements, pricing
+- shipping: Delivery updates, fulfillment status, tracking, pickup notifications
+- system: Automated system notifications, confirmations that need no action
 - other: Doesn't fit other categories
 
 Priority:
-- high: Needs immediate attention, time-sensitive, important sender
-- medium: Should address within a day or two
-- low: Informational, can wait or be batched
+- high: Requires immediate attention - alerts/exceptions, urgent customer issues, time-sensitive orders, emails needing same-day response
+- medium: Should address within 1-2 days - standard correspondence, follow-ups, routine vendor communications
+- low: Informational only - order confirmations, automated updates, routine notifications
 
-For redundancy, if an email is a reply or follow-up that doesn't add new information, mark it redundant and reference the original.
+For redundancy: If an email is part of a thread that repeats prior information without new content, mark it redundant.
 
 Emails to classify:
 ${emails.map((e, i) => `
@@ -348,7 +346,7 @@ Respond in JSON format:
   "classifications": [
     {
       "id": "email_id_here",
-      "category": "work",
+      "category": "orders",
       "priority": "high",
       "isRedundant": false,
       "redundantOf": null,
