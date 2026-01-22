@@ -1,4 +1,10 @@
-export { useEmailStore, type Email, type EmailFilters } from "./email-store";
+export {
+  useEmailStore,
+  type Email,
+  type EmailFilters,
+  type EmailClassification,
+  type UserTag,
+} from "./email-store";
 export { useUIStore, type Widget } from "./ui-store";
 export {
   useAIStore,
@@ -6,4 +12,5 @@ export {
   type EmailSummary,
   type EmailCategory,
   type Task,
+  type ViewingContext,
 } from "./ai-store";

@@ -1,17 +1,171 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { useAIStore, useEmailStore } from "@/lib/stores";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useAIStore, useEmailStore, type ViewingContext } from "@/lib/stores";
 import { Button, Badge } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { FeedbackButtons } from "./feedback-buttons";
 
-const SUGGESTED_PROMPTS = [
-  "Summarize my unread emails",
-  "What needs my attention today?",
-  "Find emails about meetings",
-  "Which emails are urgent?",
-];
+/**
+ * Formats markdown text into React components with proper styling
+ * Handles: headers (###), bold (**text**), bullet points (*, -), and basic formatting
+ *
+ * Color scheme for dark mode legibility:
+ * - Regular text: bright white (text-foreground) for maximum readability
+ * - Bold/emphasis: light blue accent (text-sky-400) for visual pop
+ * - Headers: light blue accent (text-sky-400) with size hierarchy
+ * - Bullets: primary accent color
+ */
+function formatMarkdown(text: string): React.ReactNode[] {
+  const lines = text.split('\n');
+  const elements: React.ReactNode[] = [];
+  let key = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+
+    // Skip empty lines (but add spacing)
+    if (!trimmedLine) {
+      elements.push(<div key={`space-${key++}`} className="h-3" />);
+      continue;
+    }
+
+    // Headers (### Heading) - Light blue accent with size hierarchy
+    const headerMatch = trimmedLine.match(/^(#{1,3})\s+(.+)$/);
+    if (headerMatch) {
+      const level = headerMatch[1].length;
+      const content = headerMatch[2];
+      elements.push(
+        <h3
+          key={`header-${key++}`}
+          className={cn(
+            "font-semibold text-sky-400",
+            level === 1 && "text-base mt-3 mb-2",
+            level === 2 && "text-sm mt-2.5 mb-1.5",
+            level === 3 && "text-sm mt-2 mb-1"
+          )}
+        >
+          {parseInlineFormatting(content)}
+        </h3>
+      );
+      continue;
+    }
+
+    // Bullet points (* item or - item) - White text with accent bullet
+    const bulletMatch = trimmedLine.match(/^[*-]\s+(.+)$/);
+    if (bulletMatch) {
+      const content = bulletMatch[1];
+      elements.push(
+        <div key={`bullet-${key++}`} className="flex items-start gap-2.5 my-1 pl-1">
+          <span className="text-sky-400 mt-[3px] shrink-0 text-xs">●</span>
+          <span className="text-foreground/95 flex-1 leading-relaxed">
+            {parseInlineFormatting(content)}
+          </span>
+        </div>
+      );
+      continue;
+    }
+
+    // Regular paragraphs - Bright white for maximum legibility
+    elements.push(
+      <p key={`para-${key++}`} className="text-foreground/95 leading-relaxed my-1.5">
+        {parseInlineFormatting(trimmedLine)}
+      </p>
+    );
+  }
+
+  return elements;
+}
+
+/**
+ * Parses inline formatting like bold (**text**) within a line
+ * Bold text gets light blue accent color for visual emphasis
+ */
+function parseInlineFormatting(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let key = 0;
+  let currentIndex = 0;
+
+  // Match bold text (**text** or __text__)
+  const boldRegex = /(\*\*|__)(.*?)\1/g;
+  let match;
+
+  while ((match = boldRegex.exec(text)) !== null) {
+    // Add text before the bold
+    if (match.index > currentIndex) {
+      parts.push(text.substring(currentIndex, match.index));
+    }
+
+    // Add bold text - Light blue accent for emphasis
+    parts.push(
+      <strong key={`bold-${key++}`} className="font-semibold text-sky-400">
+        {match[2]}
+      </strong>
+    );
+
+    currentIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (currentIndex < text.length) {
+    parts.push(text.substring(currentIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
+// Context-aware suggested prompts
+const PROMPTS_BY_CONTEXT = {
+  selection: [
+    "Summarize these emails",
+    "Compare these messages",
+    "What action items are here?",
+    "Draft a reply to these",
+  ],
+  filter: [
+    "Summarize filtered results",
+    "What patterns do you see?",
+    "Prioritize these emails",
+    "Any urgent items here?",
+  ],
+  default: [
+    "What needs my attention?",
+    "Summarize unread emails",
+    "Find emails about meetings",
+    "Which emails are urgent?",
+  ],
+};
+
+// Build human-readable filter description
+function buildFilterDescription(filters: import("@/lib/stores").EmailFilters): string {
+  const parts: string[] = [];
+
+  if (filters.search) {
+    parts.push(`"${filters.search}"`);
+  }
+  if (filters.unreadOnly) {
+    parts.push("unread");
+  }
+  if (filters.hasAttachment) {
+    parts.push("with attachments");
+  }
+  if (filters.dateRange !== "all") {
+    const rangeLabels = { today: "today", week: "past week", month: "past month" };
+    parts.push(rangeLabels[filters.dateRange]);
+  }
+  if (filters.categories.length > 0) {
+    parts.push(filters.categories.join(", "));
+  }
+  if (filters.priorities.length > 0) {
+    parts.push(`${filters.priorities.join("/")} priority`);
+  }
+  if (filters.excludeRedundant) {
+    parts.push("non-redundant");
+  }
+
+  return parts.length > 0 ? parts.join(", ") + " emails" : "Filtered emails";
+}
 
 export function AIAssistantPanel() {
   const {
@@ -39,7 +193,8 @@ export function AIAssistantPanel() {
     setAnalyzeError,
   } = useAIStore();
 
-  const { emails, selectedEmailIds, updateFilter } = useEmailStore();
+  const { emails, selectedEmailIds, filters, updateFilter, getFilteredEmails } = useEmailStore();
+  const { viewingContext, setViewingContext } = useAIStore();
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,12 +211,71 @@ export function AIAssistantPanel() {
     }
   }, [isPanelOpen, activeTab]);
 
-  const getSelectedEmails = useCallback(() => {
+  // Determine viewing context based on selection and filters
+  const getContextualEmails = useCallback((): {
+    emails: typeof emails;
+    context: ViewingContext;
+  } => {
+    // Priority 1: Explicit selection
     if (selectedEmailIds.size > 0) {
-      return emails.filter((e) => selectedEmailIds.has(e.id));
+      const selectedEmails = emails.filter((e) => selectedEmailIds.has(e.id));
+      return {
+        emails: selectedEmails,
+        context: {
+          type: "selection",
+          description: `${selectedEmailIds.size} selected email${selectedEmailIds.size !== 1 ? "s" : ""}`,
+          emailIds: Array.from(selectedEmailIds),
+        },
+      };
     }
-    return emails.slice(0, 10); // Default to first 10
-  }, [emails, selectedEmailIds]);
+
+    // Priority 2: Active filters
+    const hasFilters =
+      filters.search ||
+      filters.unreadOnly ||
+      filters.hasAttachment ||
+      filters.dateRange !== "all" ||
+      filters.categories.length > 0 ||
+      filters.priorities.length > 0 ||
+      filters.tags.length > 0 ||
+      filters.excludeRedundant;
+
+    if (hasFilters) {
+      const filteredEmails = getFilteredEmails();
+      const emailsToAnalyze = filteredEmails.slice(0, 50);
+      return {
+        emails: emailsToAnalyze,
+        context: {
+          type: "filter",
+          description: buildFilterDescription(filters),
+          emailIds: emailsToAnalyze.map((e) => e.id),
+          filters,
+        },
+      };
+    }
+
+    // Default: Recent inbox
+    const recentEmails = emails.slice(0, 10);
+    return {
+      emails: recentEmails,
+      context: {
+        type: "default",
+        description: "Recent inbox",
+        emailIds: recentEmails.map((e) => e.id),
+      },
+    };
+  }, [emails, selectedEmailIds, filters, getFilteredEmails]);
+
+  // Update viewing context when selection/filters change
+  useEffect(() => {
+    const { context } = getContextualEmails();
+    setViewingContext(context);
+  }, [getContextualEmails, setViewingContext]);
+
+  // Get current suggested prompts based on context
+  const suggestedPrompts = useMemo(() => {
+    return PROMPTS_BY_CONTEXT[viewingContext.type];
+  }, [viewingContext.type]);
 
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
@@ -72,19 +286,24 @@ export function AIAssistantPanel() {
     setTyping(true);
 
     try {
+      const { emails: contextEmails, context } = getContextualEmails();
       const response = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "chat",
           message: userMessage,
-          emails: getSelectedEmails().map((e) => ({
+          emails: contextEmails.map((e) => ({
             id: e.id,
             from: e.from,
             subject: e.subject,
             snippet: e.snippet,
             date: e.date,
           })),
+          context: {
+            type: context.type,
+            description: context.description,
+          },
           history: messages.map((m) => ({
             role: m.role === "user" ? "user" : "model",
             content: m.content,
@@ -111,12 +330,13 @@ export function AIAssistantPanel() {
     setAnalyzeError(null);
 
     try {
+      const { emails: contextEmails } = getContextualEmails();
       const response = await fetch("/api/ai/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
-          emails: getSelectedEmails().map((e) => ({
+          emails: contextEmails.map((e) => ({
             id: e.id,
             from: e.from,
             subject: e.subject,
@@ -204,6 +424,9 @@ export function AIAssistantPanel() {
             </button>
           </div>
 
+          {/* Context indicator */}
+          <ContextIndicator context={viewingContext} />
+
           {/* Tabs */}
           <div className="flex px-4 gap-1">
             <TabButton
@@ -238,6 +461,7 @@ export function AIAssistantPanel() {
               }}
               inputRef={inputRef}
               messagesEndRef={messagesEndRef}
+              suggestedPrompts={suggestedPrompts}
             />
           ) : (
             <ActionsTab
@@ -250,7 +474,7 @@ export function AIAssistantPanel() {
               insights={insights}
               onAction={handleQuickAction}
               onApplyFilter={handleApplyFilter}
-              selectedCount={selectedEmailIds.size || emails.length}
+              context={viewingContext}
             />
           )}
         </div>
@@ -269,6 +493,7 @@ function ChatTab({
   onPromptClick,
   inputRef,
   messagesEndRef,
+  suggestedPrompts,
 }: {
   messages: { id: string; role: "user" | "assistant"; content: string }[];
   isTyping: boolean;
@@ -278,6 +503,7 @@ function ChatTab({
   onPromptClick: (prompt: string) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  suggestedPrompts: string[];
 }) {
   return (
     <>
@@ -295,7 +521,7 @@ function ChatTab({
               Ask me anything about your emails
             </p>
             <div className="flex flex-wrap gap-2 justify-center">
-              {SUGGESTED_PROMPTS.map((prompt) => (
+              {suggestedPrompts.map((prompt) => (
                 <button
                   key={prompt}
                   onClick={() => onPromptClick(prompt)}
@@ -369,7 +595,7 @@ function ActionsTab({
   insights,
   onAction,
   onApplyFilter,
-  selectedCount,
+  context,
 }: {
   isAnalyzing: boolean;
   error: string | null;
@@ -380,14 +606,11 @@ function ActionsTab({
   insights: string[];
   onAction: (action: "summarize" | "categorize" | "tasks" | "filters") => void;
   onApplyFilter: (query: string) => void;
-  selectedCount: number;
+  context: ViewingContext;
 }) {
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4">
-      {/* Selection indicator */}
-      <div className="text-xs text-foreground-muted text-center py-2 px-3 bg-background-secondary rounded-lg">
-        Analyzing {selectedCount} email{selectedCount !== 1 ? "s" : ""}
-      </div>
+      {/* Context indicator - removed duplicate since we have header indicator */}
 
       {error && (
         <div className="p-3 rounded-lg bg-destructive-muted text-destructive text-sm">
@@ -515,6 +738,52 @@ function ActionsTab({
 }
 
 // Sub-components
+function ContextIndicator({ context }: { context: ViewingContext }) {
+  const contextIcons = {
+    selection: (
+      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+      </svg>
+    ),
+    filter: (
+      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z" />
+      </svg>
+    ),
+    default: (
+      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 0 1 2.012 1.244l.256.512a2.25 2.25 0 0 0 2.013 1.244h3.218a2.25 2.25 0 0 0 2.013-1.244l.256-.512a2.25 2.25 0 0 1 2.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 0 0-2.15-1.588H6.911a2.25 2.25 0 0 0-2.15 1.588L2.35 13.177a2.25 2.25 0 0 0-.1.661Z" />
+      </svg>
+    ),
+  };
+
+  const contextColors = {
+    selection: "bg-primary-muted text-primary border-primary/30",
+    filter: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
+    default: "bg-background-secondary text-foreground-muted border-border",
+  };
+
+  return (
+    <div className="px-4 py-2">
+      <div
+        className={cn(
+          "flex items-center gap-2 px-3 py-2 rounded-lg text-xs border",
+          contextColors[context.type]
+        )}
+      >
+        {contextIcons[context.type]}
+        <span className="font-medium">Analyzing:</span>
+        <span className="truncate">{context.description}</span>
+        {context.type !== "default" && (
+          <span className="ml-auto shrink-0 opacity-70">
+            {context.emailIds.length} email{context.emailIds.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TabButton({
   active,
   onClick,
@@ -568,9 +837,14 @@ function MessageBubble({
         {isUser ? (
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (
-          <div className="px-4 py-2.5">
-            <p className="whitespace-pre-wrap">{message.content}</p>
-            <div className="mt-2 pt-2 border-t border-border-muted">
+          <div className="px-4 py-3">
+            {/* Formatted markdown content */}
+            <div className="space-y-1">
+              {formatMarkdown(message.content)}
+            </div>
+
+            {/* Feedback buttons */}
+            <div className="mt-3 pt-3 border-t border-border-muted">
               <FeedbackButtons
                 responseType="chat"
                 responseData={{ content: message.content }}

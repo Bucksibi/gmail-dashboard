@@ -28,13 +28,43 @@ export function hashStringToColor(str: string): string {
 }
 
 export function getInitials(name: string): string {
-  const cleaned = name.replace(/<[^>]*>/g, "").trim();
+  // Remove HTML tags, quotes, and special characters at the start
+  const cleaned = name
+    .replace(/<[^>]*>/g, "") // Remove HTML tags
+    .replace(/^['"`]+/, "") // Remove leading quotes
+    .replace(/['"`]+$/, "") // Remove trailing quotes
+    .trim();
+
   const parts = cleaned.split(/\s+/).filter(Boolean);
 
   if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
 
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  // Get first character, skipping any remaining special chars
+  const getFirstAlpha = (str: string): string => {
+    const match = str.match(/[a-zA-Z]/);
+    return match ? match[0].toUpperCase() : str.charAt(0).toUpperCase();
+  };
+
+  if (parts.length === 1) return getFirstAlpha(parts[0]);
+
+  return getFirstAlpha(parts[0]) + getFirstAlpha(parts[parts.length - 1]);
+}
+
+// Decode HTML entities in strings
+export function decodeHtmlEntities(text: string): string {
+  const entities: Record<string, string> = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&#x27;': "'",
+    '&apos;': "'",
+    '&nbsp;': ' ',
+    '&#160;': ' ',
+  };
+
+  return text.replace(/&[#\w]+;/g, (match) => entities[match] || match);
 }
 
 export function extractEmail(from: string): string {

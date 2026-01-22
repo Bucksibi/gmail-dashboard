@@ -3,8 +3,71 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export const geminiModel = genAI.getGenerativeModel({
-  model: "gemini-1.5-flash",
+  model: "gemini-3-flash-preview",
 });
+
+// Retry configuration
+const MAX_RETRIES = 3;
+const INITIAL_DELAY_MS = 1000;
+
+// Retry wrapper with exponential backoff
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = MAX_RETRIES
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const errorMessage = lastError.message.toLowerCase();
+
+      // Only retry on transient errors (503, 429, network errors)
+      const isRetryable =
+        errorMessage.includes("503") ||
+        errorMessage.includes("overloaded") ||
+        errorMessage.includes("429") ||
+        errorMessage.includes("rate limit") ||
+        errorMessage.includes("network") ||
+        errorMessage.includes("timeout");
+
+      if (!isRetryable || attempt === maxRetries - 1) {
+        throw lastError;
+      }
+
+      // Exponential backoff with jitter
+      const delay = INITIAL_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+// User-friendly error messages
+export function getErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message.includes("503") || message.includes("overloaded")) {
+    return "The AI service is temporarily busy. Please try again in a moment.";
+  }
+  if (message.includes("429") || message.includes("rate limit")) {
+    return "Too many requests. Please wait a moment before trying again.";
+  }
+  if (message.includes("401") || message.includes("403")) {
+    return "Authentication error. Please check your API key configuration.";
+  }
+  if (message.includes("404")) {
+    return "AI model not found. Please check the model configuration.";
+  }
+  if (message.includes("network") || message.includes("timeout")) {
+    return "Network error. Please check your connection and try again.";
+  }
+
+  return "Something went wrong. Please try again.";
+}
 
 export interface EmailForAI {
   id: string;
@@ -59,7 +122,7 @@ Respond in JSON format:
   ]
 }`;
 
-  const result = await geminiModel.generateContent(prompt);
+  const result = await withRetry(() => geminiModel.generateContent(prompt));
   const text = result.response.text();
 
   try {
@@ -102,7 +165,7 @@ Respond in JSON format:
   ]
 }`;
 
-  const result = await geminiModel.generateContent(prompt);
+  const result = await withRetry(() => geminiModel.generateContent(prompt));
   const text = result.response.text();
 
   try {
@@ -139,7 +202,7 @@ Respond in JSON:
   ]
 }`;
 
-  const result = await geminiModel.generateContent(prompt);
+  const result = await withRetry(() => geminiModel.generateContent(prompt));
   const text = result.response.text();
 
   try {
@@ -159,25 +222,27 @@ export async function chatAboutEmails(
   emails: EmailForAI[],
   history: { role: "user" | "model"; content: string }[]
 ): Promise<string> {
-  const chat = geminiModel.startChat({
-    history: [
-      {
-        role: "user",
-        parts: [{ text: `You are an AI email assistant. Help the user manage their inbox. Here are their recent emails:\n\n${emails.map((e) => `- From: ${e.from}\n  Subject: ${e.subject}\n  Preview: ${e.snippet}\n  Date: ${e.date}\n`).join("\n")}\n\nBe helpful, concise, and actionable.` }],
-      },
-      {
-        role: "model",
-        parts: [{ text: "I'm ready to help you manage your emails! I can summarize emails, help you prioritize, find specific messages, suggest responses, or organize your inbox. What would you like to do?" }],
-      },
-      ...history.map((h) => ({
-        role: h.role,
-        parts: [{ text: h.content }],
-      })),
-    ],
-  });
+  return withRetry(async () => {
+    const chat = geminiModel.startChat({
+      history: [
+        {
+          role: "user",
+          parts: [{ text: `You are an AI email assistant. Help the user manage their inbox. Here are their recent emails:\n\n${emails.map((e) => `- From: ${e.from}\n  Subject: ${e.subject}\n  Preview: ${e.snippet}\n  Date: ${e.date}\n`).join("\n")}\n\nBe helpful, concise, and actionable.` }],
+        },
+        {
+          role: "model",
+          parts: [{ text: "I'm ready to help you manage your emails! I can summarize emails, help you prioritize, find specific messages, suggest responses, or organize your inbox. What would you like to do?" }],
+        },
+        ...history.map((h) => ({
+          role: h.role,
+          parts: [{ text: h.content }],
+        })),
+      ],
+    });
 
-  const result = await chat.sendMessage(message);
-  return result.response.text();
+    const result = await chat.sendMessage(message);
+    return result.response.text();
+  });
 }
 
 export async function suggestReply(email: EmailForAI, tone: "professional" | "casual" | "friendly" = "professional"): Promise<string> {
@@ -189,7 +254,7 @@ Content: ${email.body || email.snippet}
 
 Write only the reply body, no subject line or greeting repetition. Keep it concise and appropriate.`;
 
-  const result = await geminiModel.generateContent(prompt);
+  const result = await withRetry(() => geminiModel.generateContent(prompt));
   return result.response.text();
 }
 
@@ -216,7 +281,7 @@ Respond in JSON:
   ]
 }`;
 
-  const result = await geminiModel.generateContent(prompt);
+  const result = await withRetry(() => geminiModel.generateContent(prompt));
   const text = result.response.text();
 
   try {
@@ -229,4 +294,85 @@ Respond in JSON:
   }
 
   return { tasks: [] };
+}
+
+export interface EmailClassificationResult {
+  id: string;
+  category: "work" | "personal" | "promotions" | "alerts" | "urgent" | "newsletter" | "social" | "updates" | "finance" | "travel" | "other";
+  priority: "high" | "medium" | "low";
+  isRedundant: boolean;
+  redundantOf?: string;
+  reason: string;
+  confidence: number;
+}
+
+export async function classifyEmailsBatch(
+  emails: EmailForAI[],
+  existingEmailIds?: string[]
+): Promise<EmailClassificationResult[]> {
+  const prompt = `Classify these emails into categories and assign priorities. Also detect redundant/duplicate emails.
+
+Categories:
+- work: Work-related emails, colleagues, clients, projects
+- personal: Personal correspondence, friends, family
+- promotions: Marketing emails, sales, discounts
+- alerts: System alerts, notifications, security
+- urgent: Time-sensitive, requires immediate attention
+- newsletter: Newsletters, subscriptions, digests
+- social: Social media notifications
+- updates: Account updates, shipping, order confirmations
+- finance: Banking, payments, invoices
+- travel: Flight, hotel, travel bookings
+- other: Doesn't fit other categories
+
+Priority:
+- high: Needs immediate attention, time-sensitive, important sender
+- medium: Should address within a day or two
+- low: Informational, can wait or be batched
+
+For redundancy, if an email is a reply or follow-up that doesn't add new information, mark it redundant and reference the original.
+
+Emails to classify:
+${emails.map((e, i) => `
+--- Email ${i + 1} (ID: ${e.id}) ---
+From: ${e.from}
+Subject: ${e.subject}
+Date: ${e.date}
+Content: ${e.snippet}
+`).join("\n")}
+
+${existingEmailIds?.length ? `\nExisting email IDs in inbox for redundancy reference: ${existingEmailIds.slice(0, 50).join(", ")}` : ""}
+
+Respond in JSON format:
+{
+  "classifications": [
+    {
+      "id": "email_id_here",
+      "category": "work",
+      "priority": "high",
+      "isRedundant": false,
+      "redundantOf": null,
+      "reason": "Brief explanation for classification",
+      "confidence": 0.95
+    }
+  ]
+}`;
+
+  const result = await withRetry(() => geminiModel.generateContent(prompt));
+  const text = result.response.text();
+
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return parsed.classifications.map((c: EmailClassificationResult, i: number) => ({
+        ...c,
+        id: emails[i]?.id || c.id,
+      }));
+    }
+  } catch (e) {
+    console.error("Failed to parse Gemini classification response:", e);
+  }
+
+  return [];
 }

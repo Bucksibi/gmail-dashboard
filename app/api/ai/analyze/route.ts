@@ -4,6 +4,7 @@ import {
   categorizeEmails,
   generateSmartFilters,
   extractTasks,
+  getErrorMessage,
   type EmailForAI,
 } from "@/lib/gemini";
 import { NextRequest, NextResponse } from "next/server";
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
     console.error("AI analysis error:", error);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "AI analysis failed",
+        error: getErrorMessage(error),
       },
       { status: 500 }
     );

@@ -7,6 +7,7 @@ import { EmailDetail } from "./email-detail";
 import { EmailListSkeleton, Button } from "@/components/ui";
 import { useEmailStore, useUIStore, type EmailFilters as Filters } from "@/lib/stores";
 import { cn } from "@/lib/utils";
+import type { EmailForAI } from "@/lib/gemini";
 
 export function EmailList() {
   const {
@@ -19,6 +20,8 @@ export function EmailList() {
     hasMore,
     pageToken,
     filters,
+    classifications,
+    isClassifying,
     setEmails,
     appendEmails,
     selectEmail,
@@ -29,11 +32,15 @@ export function EmailList() {
     setLoadingMore,
     setError,
     setPageToken,
+    setClassifications,
+    setClassifying,
+    getFilteredEmails,
   } = useEmailStore();
 
   const { detailPanelOpen, openDetailPanel, closeDetailPanel, toggleSidebar } = useUIStore();
   const listRef = useRef<HTMLDivElement>(null);
   const selectedIndexRef = useRef<number>(-1);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Build Gmail query from filters
   const buildQuery = useCallback((f: Filters): string => {
@@ -121,6 +128,67 @@ export function EmailList() {
   useEffect(() => {
     fetchEmails();
   }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-classify unclassified emails
+  // Track classified email IDs to avoid re-triggering on classifications change
+  const classifiedIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const classifyEmails = async () => {
+      // Only classify if we have emails and aren't already classifying
+      if (emails.length === 0 || isClassifying || isLoading) return;
+
+      // Find unclassified emails (not in store AND not already sent for classification)
+      const unclassified = emails.filter(
+        (e) => !classifications.has(e.id) && !classifiedIdsRef.current.has(e.id)
+      );
+      if (unclassified.length === 0) return;
+
+      // Classify in batches of 30
+      const batch = unclassified.slice(0, 30);
+
+      // Mark as pending classification to prevent re-triggering
+      batch.forEach((e) => classifiedIdsRef.current.add(e.id));
+      setClassifying(true);
+
+      try {
+        const emailsForAI: EmailForAI[] = batch.map((e) => ({
+          id: e.id,
+          from: e.from,
+          subject: e.subject,
+          snippet: e.snippet,
+          date: e.date,
+        }));
+
+        const response = await fetch("/api/classifications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            emails: emailsForAI,
+            existingEmailIds: emails.map((e) => e.id),
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setClassifications(data.classifications);
+        } else {
+          // On error, remove from pending so they can be retried
+          batch.forEach((e) => classifiedIdsRef.current.delete(e.id));
+        }
+      } catch (error) {
+        console.error("Failed to classify emails:", error);
+        // On error, remove from pending so they can be retried
+        batch.forEach((e) => classifiedIdsRef.current.delete(e.id));
+      } finally {
+        setClassifying(false);
+      }
+    };
+
+    // Debounce classification
+    const timer = setTimeout(classifyEmails, 1000);
+    return () => clearTimeout(timer);
+  }, [emails, classifications, isClassifying, isLoading, setClassifications, setClassifying]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -223,6 +291,29 @@ export function EmailList() {
     }
   }, [selectedEmailId]);
 
+  // Infinite scroll with IntersectionObserver
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && hasMore && !isLoadingMore && !isLoading) {
+          fetchEmails(true);
+        }
+      },
+      {
+        root: listRef.current,
+        rootMargin: "200px", // Start loading 200px before reaching the bottom
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, isLoadingMore, isLoading, fetchEmails]);
+
   const handleEmailSelect = useCallback(
     (id: string) => {
       selectEmail(id);
@@ -293,30 +384,45 @@ export function EmailList() {
           {!isLoading && !error && emails.length > 0 && (
             <>
               <div className="divide-y divide-border-muted">
-                {emails.map((email) => (
-                  <div key={email.id} data-email-id={email.id}>
-                    <EmailListItem
-                      email={email}
-                      isSelected={selectedEmailIds.has(email.id)}
-                      isActive={selectedEmailId === email.id}
-                      onSelect={() => handleEmailSelect(email.id)}
-                      onOpen={() => handleEmailOpen(email.id)}
-                      onToggleSelect={(e) => handleToggleSelect(email.id, e)}
-                    />
-                  </div>
-                ))}
+                {/* Apply client-side classification filters */}
+                {(() => {
+                  const hasClassificationFilters =
+                    filters.categories.length > 0 ||
+                    filters.priorities.length > 0 ||
+                    filters.excludeRedundant;
+
+                  const displayEmails = hasClassificationFilters
+                    ? getFilteredEmails()
+                    : emails;
+
+                  return displayEmails.map((email) => (
+                    <div key={email.id} data-email-id={email.id}>
+                      <EmailListItem
+                        email={email}
+                        isSelected={selectedEmailIds.has(email.id)}
+                        isActive={selectedEmailId === email.id}
+                        classification={classifications.get(email.id)}
+                        onSelect={() => handleEmailSelect(email.id)}
+                        onOpen={() => handleEmailOpen(email.id)}
+                        onToggleSelect={(e) => handleToggleSelect(email.id, e)}
+                      />
+                    </div>
+                  ));
+                })()}
               </div>
 
-              {/* Load more */}
+              {/* Infinite scroll sentinel */}
               {hasMore && (
-                <div className="flex justify-center py-4">
-                  <Button
-                    variant="secondary"
-                    onClick={() => fetchEmails(true)}
-                    disabled={isLoadingMore}
-                  >
-                    {isLoadingMore ? "Loading..." : "Load more"}
-                  </Button>
+                <div
+                  ref={loadMoreRef}
+                  className="flex items-center justify-center py-6"
+                >
+                  {isLoadingMore && (
+                    <div className="flex items-center gap-2 text-sm text-foreground-muted">
+                      <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      <span>Loading more emails...</span>
+                    </div>
+                  )}
                 </div>
               )}
             </>

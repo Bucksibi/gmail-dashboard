@@ -1,15 +1,17 @@
 "use client";
 
-import { format, isToday, isYesterday, parseISO } from "date-fns";
+import { format, isToday, isYesterday } from "date-fns";
 import { SenderAvatar } from "./sender-avatar";
 import { DotBadge } from "@/components/ui";
-import { cn, extractName } from "@/lib/utils";
-import type { Email } from "@/lib/stores";
+import { cn, extractName, decodeHtmlEntities } from "@/lib/utils";
+import type { Email, EmailClassification } from "@/lib/stores";
+import { ClassificationBadge } from "./classification-badge";
 
 interface EmailListItemProps {
   email: Email;
   isSelected: boolean;
   isActive: boolean;
+  classification?: EmailClassification;
   onSelect: () => void;
   onOpen: () => void;
   onToggleSelect: (e: React.MouseEvent) => void;
@@ -19,6 +21,7 @@ export function EmailListItem({
   email,
   isSelected,
   isActive,
+  classification,
   onSelect,
   onOpen,
   onToggleSelect,
@@ -58,10 +61,11 @@ export function EmailListItem({
         "group flex items-center gap-3 px-4 py-3 cursor-pointer",
         "border-b border-border-muted last:border-b-0",
         "transition-colors duration-150",
-        "focus-ring focus:z-10",
+        "focus:outline-none focus:z-10",
+        "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset",
 
         // Selection states
-        isActive && "bg-email-selected",
+        isActive && "bg-email-selected ring-2 ring-primary/50 ring-inset",
         !isActive && "hover:bg-email-hover",
         isSelected && !isActive && "bg-primary-muted/50"
       )}
@@ -109,17 +113,28 @@ export function EmailListItem({
           </span>
         </div>
 
-        <div
-          className={cn(
-            "text-sm truncate mb-0.5",
-            isUnread ? "font-medium text-foreground" : "text-foreground"
+        <div className="flex items-center gap-2 mb-0.5">
+          <div
+            className={cn(
+              "text-sm truncate",
+              isUnread ? "font-medium text-foreground" : "text-foreground",
+              classification?.isRedundant && "opacity-60"
+            )}
+          >
+            {decodeHtmlEntities(email.subject) || "(no subject)"}
+          </div>
+          {classification && (
+            <ClassificationBadge classification={classification} compact />
           )}
-        >
-          {email.subject || "(no subject)"}
         </div>
 
-        <div className="text-sm text-foreground-muted truncate">
-          {email.snippet}
+        <div
+          className={cn(
+            "text-sm text-foreground-muted truncate",
+            classification?.isRedundant && "opacity-50"
+          )}
+        >
+          {decodeHtmlEntities(email.snippet)}
         </div>
       </div>
 

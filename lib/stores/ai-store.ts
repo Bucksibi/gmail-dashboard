@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { EmailForAI } from "@/lib/gemini";
+import type { EmailFilters } from "./email-store";
 
 export interface ChatMessage {
   id: string;
@@ -30,10 +31,20 @@ export interface Task {
   priority: "high" | "medium" | "low";
 }
 
+export interface ViewingContext {
+  type: "selection" | "filter" | "default";
+  description: string;
+  emailIds: string[];
+  filters?: EmailFilters;
+}
+
 interface AIState {
   // Panel state
   isPanelOpen: boolean;
   activeTab: "chat" | "actions";
+
+  // Context awareness
+  viewingContext: ViewingContext;
 
   // Chat
   messages: ChatMessage[];
@@ -55,6 +66,7 @@ interface AIState {
   closePanel: () => void;
   togglePanel: () => void;
   setActiveTab: (tab: "chat" | "actions") => void;
+  setViewingContext: (context: ViewingContext) => void;
   addMessage: (message: Omit<ChatMessage, "id" | "timestamp">) => void;
   setTyping: (typing: boolean) => void;
   clearChat: () => void;
@@ -68,10 +80,17 @@ interface AIState {
   clearResults: () => void;
 }
 
+const defaultViewingContext: ViewingContext = {
+  type: "default",
+  description: "Recent inbox",
+  emailIds: [],
+};
+
 export const useAIStore = create<AIState>((set) => ({
   // Initial state
   isPanelOpen: false,
   activeTab: "chat",
+  viewingContext: defaultViewingContext,
   messages: [],
   isTyping: false,
   summaries: new Map(),
@@ -87,6 +106,7 @@ export const useAIStore = create<AIState>((set) => ({
   closePanel: () => set({ isPanelOpen: false }),
   togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
   setActiveTab: (activeTab) => set({ activeTab }),
+  setViewingContext: (viewingContext) => set({ viewingContext }),
 
   addMessage: (message) =>
     set((state) => ({

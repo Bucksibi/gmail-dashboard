@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { chatAboutEmails, suggestReply, type EmailForAI } from "@/lib/gemini";
+import { chatAboutEmails, suggestReply, getErrorMessage, type EmailForAI } from "@/lib/gemini";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     console.error("AI chat error:", error);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "AI chat failed",
+        error: getErrorMessage(error),
       },
       { status: 500 }
     );
